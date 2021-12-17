@@ -2332,6 +2332,7 @@ static u8 run_target(char** argv, u32 timeout) {
      must prevent any earlier operations from venturing into that
      territory. */
 
+  //To imitate
   memset(trace_bits, 0, MAP_SIZE + 16);
   MEM_BARRIER();
 
@@ -2654,7 +2655,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     /* This is relevant when test cases are added w/out save_if_interesting */
 
-    if (q->distance <= 0) {
+    if (q->distance <= 0) { // why q->distance <=0 ? 
 
       /* This calculates cur_distance */
       has_new_bits(virgin_bits);
