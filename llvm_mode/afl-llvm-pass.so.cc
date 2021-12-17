@@ -63,7 +63,7 @@
 
 using namespace llvm;
 
-//捕获解析命令行参数 -distance、-targets
+// get and analyze command line argument -distance, -targets
 cl::opt<std::string> DistanceFile(
     "distance",
     cl::desc("Distance file containing the distance of each basic block to the provided targets."),
@@ -81,8 +81,8 @@ cl::opt<std::string> OutDirectory(
     cl::value_desc("outdir"));
 
 namespace llvm {
-
-template<>   // 重写打印CFG的类 DOTGraphTraits
+// override the class which was used to print CFG 
+template<>
 struct DOTGraphTraits<Function*> : public DefaultDOTGraphTraits {
   DOTGraphTraits(bool isSimple=true) : DefaultDOTGraphTraits(isSimple) {}
 
@@ -126,7 +126,7 @@ namespace {
 
 char AFLCoverage::ID = 0;
 
-//获取指令行数
+// get instruction line number
 static void getDebugLoc(const Instruction *I, std::string &Filename,
                         unsigned &Line) {
 #ifdef LLVM_OLD_DEBUG_API
@@ -159,7 +159,7 @@ static void getDebugLoc(const Instruction *I, std::string &Filename,
 #endif /* LLVM_OLD_DEBUG_API */
 }
 
-static bool isBlacklisted(const Function *F) {  // 函数黑名单，暂时不知道干啥用的
+static bool isBlacklisted(const Function *F) {  // what is blacklist used for? 
   static const SmallVector<std::string, 8> Blacklist = {
     "asan.",
     "llvm.",
@@ -185,9 +185,9 @@ bool AFLCoverage::runOnModule(Module &M) {
   bool is_aflgo = false;
   bool is_aflgo_preprocessing = false;
 
-  // 判断目标文件和距离文件是否同时声明，同时声明是不允许的
-  // 因为声明目标文件，表示是第一次编译目标程序，第一次就需要提取CG和CFG信息
-  // 而声明距离文件，第二次编译目标程序，就是把距离信息插入到每个基本块了
+  // declaring TargetsFile and DistanceFile at the same time is not allowed
+  // cause declaring TargetsFile means this is the first time to compile APP, so getting CG and CFG information is needed.
+  // however, declaring DistanceFile means this is the second time to compile APP, and instrumenting distance information into APP is needed.
 
   if (!TargetsFile.empty() && !DistanceFile.empty()) { 
     FATAL("Cannot specify both '-targets' and '-distance'!");
@@ -198,7 +198,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   std::map<std::string, int> bb_to_dis;
   std::vector<std::string> basic_blocks;
 
-  if (!TargetsFile.empty()) { //说明是第一次编译阶段
+  if (!TargetsFile.empty()) { // the first time for compiling
 
     if (OutDirectory.empty()) {
       FATAL("Provide output directory '-outdir <directory>'");
@@ -213,9 +213,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
     is_aflgo_preprocessing = true;
 
-  } else if (!DistanceFile.empty()) { //第二次编译目标文件阶段（插桩）
+  } else if (!DistanceFile.empty()) { // the second time for compiling
 
-    std::ifstream cf(DistanceFile); // C++的文件IO
+    std::ifstream cf(DistanceFile); // file IO of C++, TO LEARN
     if (cf.is_open()) {
 
       std::string line;
@@ -303,14 +303,14 @@ bool AFLCoverage::runOnModule(Module &M) {
       FATAL("Could not create directory %s.", dotfiles.c_str());
     }
     
-    // 粒度：Module > Function > BB > I
+    // granularity：Module > Function > BB > I
     for (auto &F : M) {
 
       bool has_BBs = false;
       std::string funcName = F.getName().str();
 
       /* Black list of function names */
-      if (isBlacklisted(&F)) { //它跳过这些函数，这在论文中好像没有说明？
+      if (isBlacklisted(&F)) { // skip funcions which are in the blacklist
         continue;
       }
 
@@ -348,8 +348,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                 std::string target_file = target.substr(0, pos);
                 unsigned int target_line = atoi(target.substr(pos + 1).c_str());
                 
-                //判断该基本块是不是目标基本块，如果文件名相同，且行数对应相同，则认为是目标基本块
-                //行数 line 和 Instruction 对应
+                // judging whether this BasicBlock is target BB based on filename and line number
                 if (!target_file.compare(filename) && target_line == line) 
                   is_target = true;
 
@@ -400,14 +399,8 @@ bool AFLCoverage::runOnModule(Module &M) {
         }
       }
       
-      //首先判断该函数是否有基本块，如果有，就打印该函数的CFG
-      /*
-      
-      AFLGo重写了WriteGraph相关的类 ，所以打印出的CFG文件与llvm自带的插件打印出的不一样
-
-      
-      */
-      if (has_BBs) {
+      // firstly, judging whether that funciton has BB, if it has, then print its CFG
+        if (has_BBs) {
         /* Print CFG */
         std::string cfgFileName = dotfiles + "/cfg." + funcName + ".dot";
         std::error_code EC;
@@ -435,9 +428,9 @@ bool AFLCoverage::runOnModule(Module &M) {
     ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 8);
 #else
     IntegerType *LargestType = Int32Ty;
-    ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 4); //“计数”开始写位置，是个相对值
+    ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 4); // the local position to write “count"
 #endif
-    ConstantInt *MapDistLoc = ConstantInt::get(LargestType, MAP_SIZE); //“距离”开始写位置，是个相对值
+    ConstantInt *MapDistLoc = ConstantInt::get(LargestType, MAP_SIZE); // the local position to write "distance"
     ConstantInt *One = ConstantInt::get(LargestType, 1);
 
     /* Get globals for the SHM region and the previous location. Note that
@@ -465,21 +458,21 @@ bool AFLCoverage::runOnModule(Module &M) {
           for (auto &I : BB) {
             std::string filename;
             unsigned line;
-            getDebugLoc(&I, filename, line); //得到这条指令所在文件的文件名，和这条指令的行数
+            getDebugLoc(&I, filename, line); // get the filename and line-number of this instruction
 
             if (filename.empty() || line == 0)
               continue;
-            std::size_t found = filename.find_last_of("/\\"); //简单的文本处理，获取文件名
+            std::size_t found = filename.find_last_of("/\\"); // a text process to get filename
             if (found != std::string::npos)
               filename = filename.substr(found + 1);
 
-            bb_name = filename + ":" + std::to_string(line); // temp.c:28，用这个来标识这个基本块
-            break; //只要一次正常就 break，（用这个指令代表这个基本块？）
+            bb_name = filename + ":" + std::to_string(line); // temp.c:28，identify BB
+            break; // break once got the bb_name, use the instruction to identify BB
           }
 
           if (!bb_name.empty()) {
 
-            if (find(basic_blocks.begin(), basic_blocks.end(), bb_name) == basic_blocks.end()) { //basic_blocks包含了所有的基本块的名字
+            if (find(basic_blocks.begin(), basic_blocks.end(), bb_name) == basic_blocks.end()) { //basic_blocks contains the names of all BB
                 
               if (is_selective)
                 continue;
@@ -492,8 +485,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                 std::map<std::string,int>::iterator it;
                 for (it = bb_to_dis.begin(); it != bb_to_dis.end(); ++it)
                   if (it->first.compare(bb_name) == 0)
-                    distance = it->second; //找到当前基本块的距离distance，bb_to_dis是第二次插桩的时候建立的map<bb_name, distance>
-
+                    distance = it->second; // get the distance of current BB，bb_to_dis is map<bb_name, distance> established at the second instrumentation 
               }
             }
           }
@@ -544,11 +536,11 @@ bool AFLCoverage::runOnModule(Module &M) {
 
           /* Add distance to shm[MAPSIZE] */
 
-          //CreateBitCast(个内存地址，一个32位指针)，将此内存地址转换为一个32位指针，也就是用一个32位指针指向这块内存地址
+          //CreateBitCast(memory address，32 bits pointer)，transform this memory address to a 32-bit pointer，that is, use a 32-bit pointer to point to this address
           Value *MapDistPtr = IRB.CreateBitCast(
               IRB.CreateGEP(MapPtr, MapDistLoc), LargestType->getPointerTo());
           LoadInst *MapDist = IRB.CreateLoad(MapDistPtr);
-          MapDist->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None)); //仍然不清楚设置元数据到底是为了干嘛，就先死记住着吧
+          MapDist->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None)); 
           
           //常规 修改+写回
           Value *IncrDist = IRB.CreateAdd(MapDist, Distance);
@@ -558,7 +550,7 @@ bool AFLCoverage::runOnModule(Module &M) {
           /* Increase count at shm[MAPSIZE + (4 or 8)] */
 
           Value *MapCntPtr = IRB.CreateBitCast(
-              IRB.CreateGEP(MapPtr, MapCntLoc), LargestType->getPointerTo());  // 基址+相对偏移
+              IRB.CreateGEP(MapPtr, MapCntLoc), LargestType->getPointerTo());  // base + offset
           LoadInst *MapCnt = IRB.CreateLoad(MapCntPtr);
           MapCnt->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
