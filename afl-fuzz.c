@@ -25,6 +25,9 @@
 
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
+ //@@Low_Fre
+#define DEBUG1 fileonly
+
 
 #include "config.h"
 #include "types.h"
@@ -145,6 +148,8 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
+
+static u64 hit_bits[MAP_SIZE];        /* @@LowFre Hits to every basic block transition*/
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
@@ -337,6 +342,35 @@ enum {
   /* 04 */ FAULT_NOINST,
   /* 05 */ FAULT_NOBITS
 };
+
+//@@LowFre for log
+void fileonly(char const* fmt, ...) {
+    static FILE* f = NULL;
+    if (f == NULL) {
+        u8* fn = alloc_printf("%s/low-fre-branch-fuzzing.log", out_dir);
+        f = fopen(fn, "w");
+        ck_free(fn);
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+}
+
+
+//@@LowFre
+/* at the end of execution, dump the number of inputs hitting each branch to log */
+static void dump_to_logs() {
+    s32 branch_hit_fd = -1;
+    u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
+    unlink(fn); /* Ignore errors */
+    branch_hit_fd = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    if (branch_hit_fd < 0) PFATAL("Unable to create '%s'", fn);
+    ck_write(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
+    ck_free(fn);
+    close(branch_hit_fd);
+}
+
 
 
 /* Get unix time in milliseconds */
@@ -785,6 +819,79 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
   ck_free(fn);
 
+}
+
+
+//@@LowFre
+/* True if branch_ids contains branch_id */
+static int contains_id(int branch_id, int* branch_ids) {
+    for (int i = 0; branch_ids[i] != -1; i++) {
+        if (branch_ids[i] == branch_id) return 1;
+    }
+    return 0;
+}
+
+//@@LowFre
+/* already have the global hit_counts, utilize it to get the low_frequent_branch_ids */
+static int* get_low_frequent_branch_ids() {
+    int* low_fre_branch_ids = ck_alloc(sizeof(int) * MAX_LOW_BRANCHES);
+    int lowest_hob = INT_MAX; // lowest low fre, up threshold based on it
+    int ret_list_size = 0;
+
+    for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_LOW_BRANCHES - 1); i++) {
+        if (unlikely(hit_bits[i] > 0)) {
+            //if (contains_id(i, blacklist))continue;
+            unsigned int long cur_hits = hit_bits[i];
+            int highest_order_bit = 0;
+            while (cur_hits >>= 1)
+                highest_order_bit++;
+            lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
+            if (highest_order_bit < low_fre_branch_exp) {
+                if (highest_order_bit < low_fre_branch_exp - 1) {
+                    low_fre_branch_exp = highest_order_bit + 1;
+                    ret_list_size = 0;
+                }
+                low_fre_branch_ids[ret_list_size] = i;
+                ret_list_size++;
+            }
+        }
+    }
+
+    // all edges aren't low fre branch. and upp max exp to enhance low fre threshold
+
+    // There's no low_fre branch, try to add one to low_fre_threshold 
+    if (ret_list_size == 0) {
+        DEBUG1("low_fre_branch list is null");
+        if (lowest_hob != INT_MAX) {
+            low_fre_branch_exp = lowest_hob + 1;
+            DEBUG1("Upped max exp to %i\n", low_fre_branch_exp);
+            ck_free(low_fre_branch_ids);
+            return get_low_frequent_branch_ids();
+        }
+    }
+
+    low_fre_branch_ids[ret_list_size] = -1; //use -1 to mark termination
+    return low_fre_branch_ids;
+}
+
+
+// @@LowFre check if hits low_fre branch, if so, count the number of low_fre branch
+// othewise, the number of low_fre branch is 0
+static int getNum_low_fre_branch() {
+    int* low_fre_branch_ids = get_low_frequent_branch_ids();
+    //@@P is back loop edge any special
+    int low_Fre_Num = 0;
+    for (int i = 0; i < MAP_SIZE; i++) {
+        if (unlikely(trace_bits[i] > 0)) {
+            int cur_index = i;
+            if (contains_id(cur_index, low_fre_branch_ids)) {
+                low_Fre_Num += trace_bits[i];
+            }
+        }
+    }
+
+    ck_free(low_fre_branch_ids);
+    return low_Fre_Num;
 }
 
 
@@ -1249,6 +1356,22 @@ static void remove_shm(void) {
 
   shmctl(shm_id, IPC_RMID, NULL);
 
+}
+
+//@@LowFre when resuming re-increment hit bits
+static void init_hit_bits() {
+    s32 branch_hit_fd = -1;
+
+    ACTF("Attempting to init hit bits...");
+    u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);  // fn is the path of out_dir
+
+    branch_hit_fd = open(fn, O_RDONLY);
+    if (branch_hit_fd < 0) PFATAL("Unable to open '%s'", fn);
+
+    ck_read(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
+
+    close(branch_hit_fd);
+    OKF("Inited hit_bits.");
 }
 
 
@@ -3201,6 +3324,18 @@ static void write_crash_readme(void) {
 
 }
 
+/*
+@@LowFre
+increment hit bits by 1 for every element of trace_bits that has been hit.
+effectively counts that one input has hit each element of trace_bits
+*/
+static void increment_hit_bits() {
+    for (int i = 0; i < MAP_SIZE; i++) {
+        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
+            hit_bits[i]++;
+    }
+}
+
 
 /* Check if the result of an execve() during routine fuzzing is interesting,
    save or queue the input test case for further analysis if so. Returns 1 if
@@ -3214,6 +3349,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  keeping = 0, res;
 
   if (fault == crash_mode) {
+
+      /*@@LowFre */
+      increment_hit_bits();
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -5141,6 +5279,17 @@ static u8 fuzz_one(char** argv) { // 对一个case的fuzz
   }
 
 #endif /* ^IGNORE_FINDS */
+
+  //@@LowFre
+  int cur_low_fre_num = getNum_low_fre_branch(trace_bits);
+  printf("%d!!\n", cur_low_fre_num);
+
+  //for (int i = 0; i < MAP_SIZE; i++) {
+  //    if (hit_bits[i] > 0) {
+  //      printf("%d branch hit Num: %d \n", i, hit_bits[i]);
+  //    }
+  //}
+
 
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
@@ -8171,6 +8320,12 @@ int main(int argc, char** argv) {
   setup_post();
   setup_shm();
   init_count_class16();
+
+  //@@LowFre
+  memset(hit_bits, 0, sizeof(hit_bits));
+  if (in_place_resume) {
+      init_hit_bits();
+  }
 
   setup_dirs_fds();
   read_testcases();
