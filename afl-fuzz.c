@@ -48,6 +48,9 @@
 #include <termios.h>
 #include <dlfcn.h>
 #include <sched.h>
+//@@LowFre
+#include <limits.h>
+#include <stdarg.h>
 
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -149,6 +152,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
+static u64 max_hit;                   /* @@LowFre Try to modify the threshold of low fre */
 static u64 hit_bits[MAP_SIZE];        /* @@LowFre Hits to every basic block transition*/
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
@@ -295,6 +299,10 @@ static double min_distance = -1.0;     /* Minimal distance for any input   */
 static u32 t_x = 10;                  /* Time to exploitation (Default: 10 min) */
 
 static u8* (*post_handler)(u8* buf, u32* len);
+
+//@@LowFre
+static u32 MAX_LOW_BRANCHES = 256;
+static int low_fre_branch_exp = 4;      /* less than 2^low_fre_branch_exp is low _fre_branch */
 
 /* Interesting values, as per config.h */
 
@@ -826,54 +834,74 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 /* True if branch_ids contains branch_id */
 static int contains_id(int branch_id, int* branch_ids) {
     for (int i = 0; branch_ids[i] != -1; i++) {
-        if (branch_ids[i] == branch_id) return 1;
+      if (branch_ids[i] == branch_id){
+          return 1;
+        }
     }
     return 0;
 }
 
+
+// static int* get_low_frequent_branch_ids() {
+//     int* low_fre_branch_ids = ck_alloc(sizeof(int) * MAX_LOW_BRANCHES);
+//     int lowest_hob = INT_MAX; // lowest low fre, up threshold based on it
+//     int ret_list_size = 0;
+
+//     for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_LOW_BRANCHES - 1); i++) {
+//         if (unlikely(hit_bits[i] > 0)) {
+//             //if (contains_id(i, blacklist))continue;
+//             unsigned int long cur_hits = hit_bits[i];
+//             int highest_order_bit = 0;
+//             while (cur_hits >>= 1)
+//                 highest_order_bit++;
+//             lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
+//             if (highest_order_bit < low_fre_branch_exp) {
+//                 if (highest_order_bit < low_fre_branch_exp - 1) {
+//                     low_fre_branch_exp = highest_order_bit + 1;
+//                     ret_list_size = 0;
+//                 }
+//                 low_fre_branch_ids[ret_list_size] = i;
+//                 ret_list_size++;
+//             }
+//         }
+//     }
+
+//     // all edges aren't low fre branch. and upp max exp to enhance low fre threshold
+
+//     // There's no low_fre branch, try to add one to low_fre_threshold 
+//     if (ret_list_size == 0) {
+//         DEBUG1("low_fre_branch list is null");
+//         if (lowest_hob != INT_MAX) {
+//             low_fre_branch_exp = lowest_hob + 1;
+//             DEBUG1("Upped max exp to %i\n", low_fre_branch_exp);
+//             ck_free(low_fre_branch_ids);
+//             return get_low_frequent_branch_ids();
+//         }
+//     }
+
+//     low_fre_branch_ids[ret_list_size] = -1; //use -1 to mark termination
+//     return low_fre_branch_ids;
+// }
+
 //@@LowFre
 /* already have the global hit_counts, utilize it to get the low_frequent_branch_ids */
 static int* get_low_frequent_branch_ids() {
-    int* low_fre_branch_ids = ck_alloc(sizeof(int) * MAX_LOW_BRANCHES);
-    int lowest_hob = INT_MAX; // lowest low fre, up threshold based on it
+    int* low_fre_branch_ids =  ck_alloc(sizeof(int) * MAX_LOW_BRANCHES);
+    // int lowest_hob = INT_MAX; // lowest low fre, up threshold based on it
     int ret_list_size = 0;
-
+    u64 threshold = max_hit > 1000 ? max_hit * 0.05 : 50;
     for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_LOW_BRANCHES - 1); i++) {
         if (unlikely(hit_bits[i] > 0)) {
-            //if (contains_id(i, blacklist))continue;
-            unsigned int long cur_hits = hit_bits[i];
-            int highest_order_bit = 0;
-            while (cur_hits >>= 1)
-                highest_order_bit++;
-            lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
-            if (highest_order_bit < low_fre_branch_exp) {
-                if (highest_order_bit < low_fre_branch_exp - 1) {
-                    low_fre_branch_exp = highest_order_bit + 1;
-                    ret_list_size = 0;
-                }
-                low_fre_branch_ids[ret_list_size] = i;
-                ret_list_size++;
+            if ( hit_bits[i] <= threshold) {
+              low_fre_branch_ids[ret_list_size] = i;
+              ret_list_size++;
             }
-        }
-    }
-
-    // all edges aren't low fre branch. and upp max exp to enhance low fre threshold
-
-    // There's no low_fre branch, try to add one to low_fre_threshold 
-    if (ret_list_size == 0) {
-        DEBUG1("low_fre_branch list is null");
-        if (lowest_hob != INT_MAX) {
-            low_fre_branch_exp = lowest_hob + 1;
-            DEBUG1("Upped max exp to %i\n", low_fre_branch_exp);
-            ck_free(low_fre_branch_ids);
-            return get_low_frequent_branch_ids();
         }
     }
 
     low_fre_branch_ids[ret_list_size] = -1; //use -1 to mark termination
     return low_fre_branch_ids;
 }
-
 
 // @@LowFre check if hits low_fre branch, if so, count the number of low_fre branch
 // othewise, the number of low_fre branch is 0
@@ -893,7 +921,6 @@ static int getNum_low_fre_branch() {
     ck_free(low_fre_branch_ids);
     return low_Fre_Num;
 }
-
 
 /* Append new test case to the queue. */
 
@@ -1015,7 +1042,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
-  u64* current = (u64*)trace_bits; // trace_bits ÊÇ 65536 ¸ö uchar£¬ÓÃ 64 Î»Ö¸ÕëÀ´²Ù×÷Õâ¸öÊý×éµÄ»°£¬ÒâÎ¶×ÅÃ¿´Î²Ù×÷64Î»£¬¼´8¸öÊý×éÔªËØ
+  u64* current = (u64*)trace_bits; // trace_bits ï¿½ï¿½ 65536 ï¿½ï¿½ ucharï¿½ï¿½ï¿½ï¿½ 64 Î»Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä»ï¿½ï¿½ï¿½ï¿½ï¿½Î¶ï¿½ï¿½Ã¿ï¿½Î²ï¿½ï¿½ï¿½64Î»ï¿½ï¿½ï¿½ï¿½8ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ôªï¿½ï¿½
   u64* virgin  = (u64*)virgin_map;
 
   u32  i = (MAP_SIZE >> 3);
@@ -1049,13 +1076,13 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u8   ret = 0;
 
-  while (i--) { // 64Î» ÐèÒªµü´ú 65536/8 = 8192 ´Î 
+  while (i--) { // 64Î» ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ 65536/8 = 8192 ï¿½ï¿½ 
 
     /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) { //Èç¹ûÓÐÐÂ¶«Î÷
+    if (unlikely(*current) && unlikely(*current & *virgin)) { //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â¶ï¿½ï¿½ï¿½
 
       if (likely(ret < 2)) {
 
@@ -1083,7 +1110,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current; // ~£º°´Î»È¡·´
+      *virgin &= ~*current; // ~ï¿½ï¿½ï¿½ï¿½Î»È¡ï¿½ï¿½
 
     }
 
@@ -1092,7 +1119,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   }
 
-  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //¡¾¿Ó¡¿µÚÒ»¸öÌõ¼þret²»Îª0¿ÉÒÔÀí½â£¬µÚ¶þ¸öÌõ¼þ¾ÍÓÐµãÎÞ·¨Àí½â
+  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //ï¿½ï¿½ï¿½Ó¡ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½retï¿½ï¿½Îª0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â£¬ï¿½Ú¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ðµï¿½ï¿½Þ·ï¿½ï¿½ï¿½ï¿½ï¿½
 
   return ret;
 
@@ -1471,7 +1498,7 @@ static void cull_queue(void) {
   score_changed = 0;
 
   memset(temp_v, 255, MAP_SIZE >> 3);
-  //initialize all bits of temp_v to 1, È« 1 ±íÊ¾»¹Ã»ÓÐ±»¸²¸Çµ½£¬Îª 0 ¾Í±íÊ¾±»¸²¸Çµ½ÁË¡¾ÕâÀïµÄ¸²¸ÇÖ¸µÄÊÇ·ÖÖ§µÄ¸²¸Ç£¿¶Ô£¡¡¿
+  //initialize all bits of temp_v to 1, È« 1 ï¿½ï¿½Ê¾ï¿½ï¿½Ã»ï¿½Ð±ï¿½ï¿½ï¿½ï¿½Çµï¿½ï¿½ï¿½Îª 0 ï¿½Í±ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½Çµï¿½ï¿½Ë¡ï¿½ï¿½ï¿½ï¿½ï¿½Ä¸ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½Ç·ï¿½Ö§ï¿½Ä¸ï¿½ï¿½Ç£ï¿½ï¿½Ô£ï¿½ï¿½ï¿½
 
 
   queued_favored  = 0;
@@ -1484,13 +1511,13 @@ static void cull_queue(void) {
     q->favored = 0;
     q = q->next;
   }//reset favored to 0
-  //¶ÓÁÐ±éÀú
+  //ï¿½ï¿½ï¿½Ð±ï¿½ï¿½ï¿½
 
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
 
-  // i ´Ó 0 µ½ MAP_SIZE ½øÐÐµü´ú£¬É¸Ñ¡³öÒ»×é¶ÓÁÐÌõÄ¿£¬ËüÃÇ¿ÉÒÔ¸²¸ÇËùÓÐÏÖÔÚ
-  // ÒÑ¾­¸²¸ÇµÄÂ·¾¶
+  // i ï¿½ï¿½ 0 ï¿½ï¿½ MAP_SIZE ï¿½ï¿½ï¿½Ðµï¿½ï¿½ï¿½ï¿½ï¿½É¸Ñ¡ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½Ç¿ï¿½ï¿½Ô¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+  // ï¿½Ñ¾ï¿½ï¿½ï¿½ï¿½Çµï¿½Â·ï¿½ï¿½
   for (i = 0; i < MAP_SIZE; i++)
     if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
@@ -1505,13 +1532,13 @@ static void cull_queue(void) {
       top_rated[i]->favored = 1;
       queued_favored++;
 
-      if (!top_rated[i]->was_fuzzed) pending_favored++; //±»Ö´ÐÐ¹ýÁË£¬µ«ÊÇ»¹Ã»ÓÐ±»±äÒì¹ýµÄcase
+      if (!top_rated[i]->was_fuzzed) pending_favored++; //ï¿½ï¿½Ö´ï¿½Ð¹ï¿½ï¿½Ë£ï¿½ï¿½ï¿½ï¿½Ç»ï¿½Ã»ï¿½Ð±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case
 
     }
 
   q = queue;
 
-  while (q) { // ±éÀú¶ÓÁÐ£¬²»ÊÇfavoredµÄcase£¨ÈßÓàµÄcase£©»á±»±ê¼ÇÎªredundant_edges
+  while (q) { // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½favoredï¿½ï¿½caseï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½caseï¿½ï¿½ï¿½á±»ï¿½ï¿½ï¿½Îªredundant_edges
     mark_as_redundant(q, !q->favored);
     q = q->next;
   }
@@ -1525,7 +1552,7 @@ EXP_ST void setup_shm(void) {
 
   u8* shm_str;
 
-  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); //³õÊ¼»¯ virgin_bits ËùÓÐÎ»¶¼ÊÇ1
+  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); //ï¿½ï¿½Ê¼ï¿½ï¿½ virgin_bits ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½1
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
@@ -2724,7 +2751,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   s32 old_sc = stage_cur, old_sm = stage_max;
   u32 use_tmout = exec_tmout;
-  u8* old_sn = stage_name; //µ±Ç°½øÐÐµÄ½×¶ÎµÄÃû³Æ
+  u8* old_sn = stage_name; //ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ÐµÄ½×¶Îµï¿½ï¿½ï¿½ï¿½ï¿½
   //save old globals
 
   /* Be a bit more generous about timeouts when resuming sessions, or when
@@ -3332,7 +3359,12 @@ effectively counts that one input has hit each element of trace_bits
 static void increment_hit_bits() {
     for (int i = 0; i < MAP_SIZE; i++) {
         if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
-            hit_bits[i]++;
+            {
+              hit_bits[i]++;
+              if (hit_bits[i] > max_hit) {
+                max_hit = hit_bits[i];
+              } // 5 percent of max_hit is used as the threshold
+            }
     }
 }
 
@@ -3375,7 +3407,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     add_to_queue(fn, len, 0);
 
-    if (hnb == 2) { // ±íÊ¾µÃµ½ÁËÄÜÊ¹¸²¸ÇÂÊÔö³¤µÄcase
+    if (hnb == 2) { // ï¿½ï¿½Ê¾ï¿½Ãµï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case
       queue_top->has_new_cov = 1;
       queued_with_cov++;
     }
@@ -4840,13 +4872,13 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
       cur_skipped_paths++;
       return 1;
     }
-  // Ö´ÐÐÊ±¼äÌ«¿ì»òÌ«Âý¶¼²»ÐÐ
+  // Ö´ï¿½ï¿½Ê±ï¿½ï¿½Ì«ï¿½ï¿½ï¿½Ì«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
   } else subseq_tmouts = 0;
 
   /* Users can hit us with SIGUSR1 to request the current input
      to be abandoned. */
 
-  if (skip_requested) { //Èç¹ûÒªÌø¹ýÕâ¸öcase?
+  if (skip_requested) { //ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case?
 
      skip_requested = 0;
      cur_skipped_paths++;
@@ -4961,7 +4993,7 @@ static u32 calculate_score(struct queue_entry* q) {
      deeper test cases is more likely to reveal stuff that can't be
      discovered with traditional fuzzers. */
 
-  switch (q->depth) { // ÔõÃ´Àí½â inpiut depth£¿
+  switch (q->depth) { // ï¿½ï¿½Ã´ï¿½ï¿½ï¿½ï¿½ inpiut depthï¿½ï¿½
 
     case 0 ... 3:   break;
     case 4 ... 7:   perf_score *= 2; break;
@@ -5023,7 +5055,7 @@ static u32 calculate_score(struct queue_entry* q) {
     }// else WARNF ("Normalized distance negative: %f", normalized_d);
 
   }
-  // ½áºÏ¾àÀëµÄÄÜÁ¿µ÷¶È
+  // ï¿½ï¿½Ï¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
   perf_score *= power_factor;
 
@@ -5229,7 +5261,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
 
-static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
+static u8 fuzz_one(char** argv) { // ï¿½ï¿½Ò»ï¿½ï¿½caseï¿½ï¿½fuzz
 
   s32 len, fd, temp_len, i, j;
   u8  *in_buf, *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
@@ -5241,26 +5273,26 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
-#ifdef IGNORE_FINDS // ºöÂÔÈÎºÎÐÂcase
+#ifdef IGNORE_FINDS // ï¿½ï¿½ï¿½ï¿½ï¿½Îºï¿½ï¿½ï¿½case
 
   /* In IGNORE_FINDS mode, skip any entries that weren't in the
      initial data set. */
 
   if (queue_cur->depth > 1) return 1;
 
-#else //Ò»Ð©Ìø¹ý¹æÔò
+#else 
 
-  if (pending_favored) {  // Èç¹ûÓÐ»¹Ã»ÓÐ±» fuzz(±äÒì) ¹ý£¬µ«ÒÑ¾­Ö´ÐÐ¹ýÇÒ±»±ê¼ÇÎª favored µÄ case£¬ÕâÐ©ÊÇÖØµã fuzz(½øÐÐ±äÒì) µÄ¶ÔÏó
+  if (pending_favored) {  
 
     /* If we have any favored, non-fuzzed new arrivals in the queue,
        possibly skip to them at the expense of already-fuzzed or non-favored
        cases. */
-      // ×¢ÒâÊÇ skip to them£¬Ò²¾ÍÊÇËµÒªÌø¹ý already-fuzzed or non-favored cases£¬È»ºó±äÒìÄÇÐ© favored, non-fuzzed cases
+      
 
     if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
-        UR(100) < SKIP_TO_NEW_PROB) return 1; // UR(100), 0-100 Ö®Ç°µÄËæ»úÊý£¬ Ö»ÒªÐ¡ÓÚ 99£¬¾ÍÌø¹ý 
+        UR(100) < SKIP_TO_NEW_PROB) return 1; 
 
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) { // µÈ´ý fuzz µÄ cases ÓÐ 10 ¸öÒÔÉÏ
+  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
 
     /* Otherwise, still possibly skip non-favored cases, albeit less often.
        The odds of skipping stuff are higher for already-fuzzed inputs and
@@ -5282,13 +5314,7 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 
   //@@LowFre
   int cur_low_fre_num = getNum_low_fre_branch(trace_bits);
-  printf("%d!!\n", cur_low_fre_num);
-
-  //for (int i = 0; i < MAP_SIZE; i++) {
-  //    if (hit_bits[i] > 0) {
-  //      printf("%d branch hit Num: %d \n", i, hit_bits[i]);
-  //    }
-  //}
+  DEBUG1("%d!!\n", cur_low_fre_num);
 
 
   if (not_on_tty) {
@@ -5381,7 +5407,7 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
      this entry ourselves (was_fuzzed), or if it has gone through deterministic
      testing in earlier, resumed runs (passed_det). */
 
-  // TODO, ¾àÀë±È½Ï½üµÄ¾ÍÑ¡ÓÃ deterministic
+  // TODO,  deterministic
   if (skip_deterministic || queue_cur->was_fuzzed || queue_cur->passed_det)
     goto havoc_stage;
 
@@ -5400,14 +5426,14 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 #define FLIP_BIT(_ar, _b) do { \
     u8* _arf = (u8*)(_ar); \
     u32 _bf = (_b); \
-    _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \ //ÊÇ´Ó¸ßÎ»ÏòµÍÎ»ÒÀ´Î½øÐÐ·­×ª£¬´Ó×óÍùÓÒ
+    _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \
   } while (0)
 
-  // FLIP_BIT µÄ×÷ÓÃ¾ÍÊÇ·­×ªÖ¸¶¨Î»ÖÃµÄ 1 bit
+  // FLIP_BIT ï¿½ï¿½ï¿½ï¿½ï¿½Ã¾ï¿½ï¿½Ç·ï¿½×ªÖ¸ï¿½ï¿½Î»ï¿½Ãµï¿½ 1 bit
   /* Single walking bit. */
 
   stage_short = "flip1";
-  stage_max   = len << 3; // ÎÄ¼þ³¤¶È(len)*8£¬ÍÆ¶Ï stage_max ÊÇ¿ÉÒÔ±äÒìµÄ´ÎÊý£¬³õ²½ÍÆ²â£¬Ô­À´µÄ len µÄµ¥Î»ÊÇ byte£¬È»ºó stage_max µÄµ¥Î»ÊÇ bit
+  stage_max   = len << 3; // ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½(len)*8ï¿½ï¿½ï¿½Æ¶ï¿½ stage_max ï¿½Ç¿ï¿½ï¿½Ô±ï¿½ï¿½ï¿½Ä´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ²â£¬Ô­ï¿½ï¿½ï¿½ï¿½ len ï¿½Äµï¿½Î»ï¿½ï¿½ byteï¿½ï¿½È»ï¿½ï¿½ stage_max ï¿½Äµï¿½Î»ï¿½ï¿½ bit
   stage_name  = "bitflip 1/1";
 
   stage_val_type = STAGE_VAL_NONE;
@@ -5418,9 +5444,9 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    stage_cur_byte = stage_cur >> 3;  //±éÀúµ½µ±Ç°µÚ¼¸¸ö×Ö½ÚÁË£¿
+    stage_cur_byte = stage_cur >> 3;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½Ú¼ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½Ë£ï¿½
 
-    FLIP_BIT(out_buf, stage_cur); // ·­×ªµ±Ç°×Ö½ÚµÄµÚ stage_cur ¸ö bit
+    FLIP_BIT(out_buf, stage_cur); // ï¿½ï¿½×ªï¿½ï¿½Ç°ï¿½Ö½ÚµÄµï¿½ stage_cur ï¿½ï¿½ bit
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
@@ -5454,7 +5480,7 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
       */
 
     if (!dumb_mode && (stage_cur & 7) == 7) {
-      // (stage_cur & 7) == 7 ÒâË¼¾ÍÊÇ£¬·­×ªµ½µ±Ç°×Ö½ÚµÄ×îµÍÎ»Ê±
+      // (stage_cur & 7) == 7
       u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
       if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
@@ -8377,7 +8403,7 @@ int main(int argc, char** argv) {
 
     cull_queue();
 
-    if (!queue_cur) { //Èç¹û queue_cur Îª¿Õ
+    if (!queue_cur) { //ï¿½ï¿½ï¿½ queue_cur Îªï¿½ï¿½
 
       queue_cycle++;
       current_entry     = 0;
@@ -8451,6 +8477,10 @@ stop_fuzzing:
            "    (For info on resuming, see %s/README.)\n", doc_path);
 
   }
+
+  //@@LowFre
+  dump_to_logs();
+
 
   fclose(plot_file);
   destroy_queue();
