@@ -124,6 +124,30 @@ namespace {
 
 }
 
+//@@RiskNum
+std::vector<std::string> syscall_routines = {
+    // memory allocation
+    "calloc",  "malloc",   "realloc",  "free",
+    // memory operation
+    "memcpy",  "memmove",  "memchr",   "memset",
+    "memcmp",
+    // string operation
+    "strcpy",  "strncpy",  "strerror", "strlen",
+    "strcat",  "strncat",  "strcmp",   "strspn",
+    "strcoll", "strncmp",  "strxfrm",  "strstr",
+    "strchr",  "strcspn",  "strpbrk",  "strrchr",
+    "strtok",
+    // TODO... add more interesting functions
+};
+bool is_syscal(std::string fn_name) {
+    for (std::vector<std::string>::size_type i = 0; i < syscall_routines.size(); i++) {
+        if (fn_name.compare(0, syscall_routines[i].size(), syscall_routines[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
+
 char AFLCoverage::ID = 0;
 
 // get instruction line number
@@ -159,7 +183,7 @@ static void getDebugLoc(const Instruction *I, std::string &Filename,
 #endif /* LLVM_OLD_DEBUG_API */
 }
 
-static bool isBlacklisted(const Function *F) {  // what is blacklist used for? 
+static bool isBlacklisted(const Function *F) {  // blacklist is only used for the first phase, aflgo_preprocessing
   static const SmallVector<std::string, 8> Blacklist = {
     "asan.",
     "llvm.",
@@ -184,12 +208,14 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   bool is_aflgo = false;
   bool is_aflgo_preprocessing = false;
+  //@@RiskNum
+  bool risk = false;
 
   // declaring TargetsFile and DistanceFile at the same time is not allowed
   // cause declaring TargetsFile means this is the first time to compile APP, so getting CG and CFG information is needed.
   // however, declaring DistanceFile means this is the second time to compile APP, and instrumenting distance information into APP is needed.
 
-  if (!TargetsFile.empty() && !DistanceFile.empty()) { 
+  if (!TargetsFile.empty() && !DistanceFile.empty()) {
     FATAL("Cannot specify both '-targets' and '-distance'!");
     return false;
   }
@@ -225,7 +251,7 @@ bool AFLCoverage::runOnModule(Module &M) {
         std::string bb_name = line.substr(0, pos);
         int bb_dis = (int) (100.0 * atof(line.substr(pos + 1, line.length()).c_str()));
 
-        bb_to_dis.emplace(bb_name, bb_dis);
+        bb_to_dis.emplace(bb_name, bb_dis);  // map<string, double>, each BB has its distance
         basic_blocks.push_back(bb_name);
 
       }
@@ -238,7 +264,7 @@ bool AFLCoverage::runOnModule(Module &M) {
       return false;
     }
 
-  }
+  } // else if (!DistanceFile.empty())
 
   /* Show a banner */
 
@@ -290,7 +316,8 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   int inst_blocks = 0;
 
-  if (is_aflgo_preprocessing) {
+  // the first phase 
+  if (is_aflgo_preprocessing) { 
 
     std::ofstream bbnames(OutDirectory + "/BBnames.txt", std::ofstream::out | std::ofstream::app);
     std::ofstream bbcalls(OutDirectory + "/BBcalls.txt", std::ofstream::out | std::ofstream::app);
@@ -303,7 +330,7 @@ bool AFLCoverage::runOnModule(Module &M) {
       FATAL("Could not create directory %s.", dotfiles.c_str());
     }
     
-    // granularity：Module > Function > BB > I
+    // granularity Module > Function > BB > I
     for (auto &F : M) {
 
       bool has_BBs = false;
@@ -415,7 +442,7 @@ bool AFLCoverage::runOnModule(Module &M) {
       }
     }
 
-  } else {
+  } else { // the second phase
     /* Distance instrumentation */
 
     LLVMContext &C = M.getContext();
@@ -426,9 +453,13 @@ bool AFLCoverage::runOnModule(Module &M) {
 #ifdef __x86_64__
     IntegerType *LargestType = Int64Ty;
     ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 8);
+    //@@RiskNum
+    ConstantInt *MapRiskNumLoc = ConstantInt::get(LargestType, MAP_SIZE + 16);
 #else
     IntegerType *LargestType = Int32Ty;
-    ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 4); // the local position to write “count"
+    ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 4); // the local position to write count"
+    //@@RiskNum
+    ConstantInt *MapRiskNumLoc = ConstantInt::get(LargestType, MAP_SIZE + 8);
 #endif
     ConstantInt *MapDistLoc = ConstantInt::get(LargestType, MAP_SIZE); // the local position to write "distance"
     ConstantInt *One = ConstantInt::get(LargestType, 1);
@@ -450,9 +481,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       for (auto &BB : F) {
 
+        //@@RiskNum
+        int syscall_num = 0;
+
         distance = -1;
 
-        if (is_aflgo) {
+        if (is_aflgo) { // get the distance of current BB
 
           std::string bb_name;
           for (auto &I : BB) {
@@ -466,7 +500,7 @@ bool AFLCoverage::runOnModule(Module &M) {
             if (found != std::string::npos)
               filename = filename.substr(found + 1);
 
-            bb_name = filename + ":" + std::to_string(line); // temp.c:28，identify BB
+            bb_name = filename + ":" + std::to_string(line); // temp.c:28, identify BB
             break; // break once got the bb_name, use the instruction to identify BB
           }
 
@@ -485,11 +519,44 @@ bool AFLCoverage::runOnModule(Module &M) {
                 std::map<std::string,int>::iterator it;
                 for (it = bb_to_dis.begin(); it != bb_to_dis.end(); ++it)
                   if (it->first.compare(bb_name) == 0)
-                    distance = it->second; // get the distance of current BB，bb_to_dis is map<bb_name, distance> established at the second instrumentation 
+                    distance = it->second; // get the distance of current BB, bb_to_dis is map<bb_name, distance> established at the second instrumentation 
               }
             }
           }
         }
+
+        if (risk){
+          //@@RiskNum
+          /*To traverse Instructions in each block*/
+          for (auto Inst = BB.begin(); Inst != BB.end(); Inst++) {
+              Instruction& inst = *Inst;
+
+              // only if inst is CallInst can dyn_cast sucess. otherwise dyn_cast will return nullptr
+              if (CallInst* call_inst = dyn_cast<CallInst>(&inst)) {
+                  Function* fn = call_inst->getCalledFunction(); //get the called funciton
+
+                  if (fn == NULL) {
+                      Value* v = call_inst->getCalledOperand(); //get the called value
+                      fn = dyn_cast<Function>(v->stripPointerCasts());
+                      if (fn == NULL) {
+                          continue;
+                      }
+                  }
+
+                  std::string fn_name = fn->getName().str();
+                  if (fn_name.compare(0, 5, "llvm.") == 0) { //filter function w.r.t llvm
+                      continue;
+                  }
+
+                  if (is_syscal(fn_name)) {
+                      syscall_num++;
+                      //outs() << fn_name << "\n";
+                  }
+              }
+          }
+          /* Get RiskNum finished */
+        }
+
 
         BasicBlock::iterator IP = BB.getFirstInsertionPt();
         IRBuilder<> IRB(&(*IP));
@@ -536,13 +603,13 @@ bool AFLCoverage::runOnModule(Module &M) {
 
           /* Add distance to shm[MAPSIZE] */
 
-          //CreateBitCast(memory address，32 bits pointer)，transform this memory address to a 32-bit pointer，that is, use a 32-bit pointer to point to this address
+          //CreateBitCast(memory address 32 bits pointer)transform this memory address to a 32-bit pointerthat is, use a 32-bit pointer to point to this address
           Value *MapDistPtr = IRB.CreateBitCast(
               IRB.CreateGEP(MapPtr, MapDistLoc), LargestType->getPointerTo());
           LoadInst *MapDist = IRB.CreateLoad(MapDistPtr);
           MapDist->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None)); 
           
-          //常规 修改+写回
+      
           Value *IncrDist = IRB.CreateAdd(MapDist, Distance);
           IRB.CreateStore(IncrDist, MapDistPtr)
               ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
@@ -559,6 +626,24 @@ bool AFLCoverage::runOnModule(Module &M) {
               ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
         }
+
+        //@@RiskNum
+        // if (syscall_num > 0) {
+        //     ConstantInt* Syscall_num =
+        //         ConstantInt::get(LargestType, (unsigned)syscall_num);
+        //     /* Add risk to shm[MAPSIZE] */
+        //     Value* MapRisk_NumPtr = IRB.CreateBitCast(
+        //         IRB.CreateGEP(MapPtr, MapRiskNumLoc), LargestType->getPointerTo());
+
+        //     LoadInst* MapRisk = IRB.CreateLoad(MapRisk_NumPtr);
+        //     MapRisk->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+
+        //     // modify + write back
+        //     Value* IncrRN = IRB.CreateAdd(MapRisk, Syscall_num);
+        //     IRB.CreateStore(IncrRN, MapRisk_NumPtr)
+        //           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+        //   }
+          
 
         inst_blocks++;
 
@@ -584,6 +669,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   return true;
 
 }
+
 
 
 static void registerAFLPass(const PassManagerBuilder &,

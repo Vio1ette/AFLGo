@@ -267,6 +267,9 @@ struct queue_entry {
   u32 tc_ref;                         /* Trace bytes ref count            */
 
   double distance;                    /* Distance to targets              */
+  
+  //@@RiskNum
+  int RiskNum;                     /* Risk number */
 
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
@@ -303,6 +306,8 @@ static u8* (*post_handler)(u8* buf, u32* len);
 //@@LowFre
 static u32 MAX_LOW_BRANCHES = 256;
 static int low_fre_branch_exp = 4;      /* less than 2^low_fre_branch_exp is low _fre_branch */
+//@@RiskNum
+static int cur_Risk_Num = 0;         /* the number of risk function on current seed's path */
 
 /* Interesting values, as per config.h */
 
@@ -934,6 +939,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->passed_det   = passed_det;
 
   q->distance = cur_distance;
+
   if (cur_distance > 0) {
 
     if (max_distance <= 0) {
@@ -944,6 +950,10 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
     if (cur_distance < min_distance) min_distance = cur_distance;
 
   }
+
+  //@RiskNum
+  q->RiskNum = cur_Risk_Num;
+  DEBUG1("current seed's RiskNum: %d\n",q->RiskNum);
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1042,7 +1052,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
-  u64* current = (u64*)trace_bits; // trace_bits �� 65536 �� uchar���� 64 λָ���������������Ļ�����ζ��ÿ�β���64λ����8������Ԫ��
+  u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
 
   u32  i = (MAP_SIZE >> 3);
@@ -1050,11 +1060,17 @@ static inline u8 has_new_bits(u8* virgin_map) {
   /* Calculate distance of current input to targets */
   u64* total_distance = (u64*) (trace_bits + MAP_SIZE);
   u64* total_count = (u64*) (trace_bits + MAP_SIZE + 8);
-
+  
   if (*total_count > 0)
     cur_distance = (double) (*total_distance) / (double) (*total_count);
   else
     cur_distance = -1.0;
+
+    //@@RiskNum
+  /* Calculate RiskNum of current input to targets */
+  int* total_Risk_Num = (int*)(trace_bits + MAP_SIZE + 16); // operate 4 bytes at a time
+  cur_Risk_Num = *total_Risk_Num;
+
 
 #else
 
@@ -1072,17 +1088,22 @@ static inline u8 has_new_bits(u8* virgin_map) {
   else
     cur_distance = -1.0;
 
+    //@@RiskNum
+  /* Calculate RiskNum of current input to targets */
+  int* total_Risk_Num = (int*)(trace_bits + MAP_SIZE + 8); // operate 4 bytes at a time 
+  cur_Risk_Num = *total_Risk_Num;
+
 #endif /* ^__x86_64__ */
 
   u8   ret = 0;
 
-  while (i--) { // 64λ ��Ҫ���� 65536/8 = 8192 �� 
+  while (i--) {
 
     /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) { //������¶���
+    if (unlikely(*current) && unlikely(*current & *virgin)) {
 
       if (likely(ret < 2)) {
 
@@ -1110,7 +1131,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current; // ~����λȡ��
+      *virgin &= ~*current; 
 
     }
 
@@ -1119,7 +1140,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   }
 
-  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //���ӡ���һ������ret��Ϊ0�������⣬�ڶ����������е��޷�����
+  if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
 
   return ret;
 
@@ -1532,13 +1553,13 @@ static void cull_queue(void) {
       top_rated[i]->favored = 1;
       queued_favored++;
 
-      if (!top_rated[i]->was_fuzzed) pending_favored++; //��ִ�й��ˣ����ǻ�û�б��������case
+      if (!top_rated[i]->was_fuzzed) pending_favored++; 
 
     }
 
   q = queue;
 
-  while (q) { // �������У�����favored��case�������case���ᱻ���Ϊredundant_edges
+  while (q) { 
     mark_as_redundant(q, !q->favored);
     q = q->next;
   }
@@ -1552,13 +1573,15 @@ EXP_ST void setup_shm(void) {
 
   u8* shm_str;
 
-  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); //��ʼ�� virgin_bits ����λ����1
+  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); 
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
 
+  //@@RiskNum
   /* Allocate 24 byte more for distance info */
-  shm_id = shmget(IPC_PRIVATE, MAP_SIZE + 16, IPC_CREAT | IPC_EXCL | 0600);
+  /* Allocate 28 byte more for distance and risk info */ 
+  shm_id = shmget(IPC_PRIVATE, MAP_SIZE + 24, IPC_CREAT | IPC_EXCL | 0600);
 
   if (shm_id < 0) PFATAL("shmget() failed");
 
@@ -2483,7 +2506,8 @@ static u8 run_target(char** argv, u32 timeout) {
      territory. */
 
   //To imitate
-  memset(trace_bits, 0, MAP_SIZE + 16);
+  //@@RiskNum
+  memset(trace_bits, 0, MAP_SIZE + 20); // clear the share memory
   MEM_BARRIER();
 
   /* If we're running in "dumb" mode, we can't rely on the fork server
@@ -2805,12 +2829,13 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     /* This is relevant when test cases are added w/out save_if_interesting */
 
-    if (q->distance <= 0) { // why q->distance <=0 ? 
+    if (q->distance <= 0) { // I guess 'q->distance < 0' is a sign of error, so an additional call of has_new_bits is needed...
 
-      /* This calculates cur_distance */
+      /* This calculates cur_distance */  // Meanwhile, we get the risk number
       has_new_bits(virgin_bits);
 
       q->distance = cur_distance;
+
       if (cur_distance > 0) {
 
         if (max_distance <= 0) {
@@ -5313,8 +5338,8 @@ static u8 fuzz_one(char** argv) { // ��һ��case��fuzz
 #endif /* ^IGNORE_FINDS */
 
   //@@LowFre
-  int cur_low_fre_num = getNum_low_fre_branch(trace_bits);
-  DEBUG1("%d!!\n", cur_low_fre_num);
+  // int cur_low_fre_num = getNum_low_fre_branch(trace_bits);
+  // DEBUG1("%d!!\n", cur_low_fre_num);
 
 
   if (not_on_tty) {
