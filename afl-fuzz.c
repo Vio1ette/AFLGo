@@ -953,7 +953,8 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   //@RiskNum
   q->RiskNum = cur_Risk_Num;
-  DEBUG1("current seed's RiskNum: %d\n",q->RiskNum);
+  if(q->RiskNum>0)
+    DEBUG1("current seed's RiskNum: %d\n",q->RiskNum);
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -2835,6 +2836,11 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
       has_new_bits(virgin_bits);
 
       q->distance = cur_distance;
+
+      //@@RiskNum
+      q->RiskNum = cur_Risk_Num;
+    if(q->RiskNum>0)
+      DEBUG1("current seed's RiskNum: %d\n",q->RiskNum);
 
       if (cur_distance > 0) {
 

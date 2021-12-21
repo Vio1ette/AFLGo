@@ -209,7 +209,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   bool is_aflgo = false;
   bool is_aflgo_preprocessing = false;
   //@@RiskNum
-  bool risk = false;
+  bool risk = true;
 
   // declaring TargetsFile and DistanceFile at the same time is not allowed
   // cause declaring TargetsFile means this is the first time to compile APP, so getting CG and CFG information is needed.
@@ -454,12 +454,12 @@ bool AFLCoverage::runOnModule(Module &M) {
     IntegerType *LargestType = Int64Ty;
     ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 8);
     //@@RiskNum
-    ConstantInt *MapRiskNumLoc = ConstantInt::get(LargestType, MAP_SIZE + 16);
+    ConstantInt *MapRiskNumLoc = ConstantInt::get(Int32Ty, MAP_SIZE + 16); // 4 byte is enough
 #else
     IntegerType *LargestType = Int32Ty;
     ConstantInt *MapCntLoc = ConstantInt::get(LargestType, MAP_SIZE + 4); // the local position to write count"
     //@@RiskNum
-    ConstantInt *MapRiskNumLoc = ConstantInt::get(LargestType, MAP_SIZE + 8);
+    ConstantInt *MapRiskNumLoc = ConstantInt::get(Int32Ty, MAP_SIZE + 8);
 #endif
     ConstantInt *MapDistLoc = ConstantInt::get(LargestType, MAP_SIZE); // the local position to write "distance"
     ConstantInt *One = ConstantInt::get(LargestType, 1);
@@ -627,22 +627,22 @@ bool AFLCoverage::runOnModule(Module &M) {
 
         }
 
-        //@@RiskNum
-        // if (syscall_num > 0) {
-        //     ConstantInt* Syscall_num =
-        //         ConstantInt::get(LargestType, (unsigned)syscall_num);
-        //     /* Add risk to shm[MAPSIZE] */
-        //     Value* MapRisk_NumPtr = IRB.CreateBitCast(
-        //         IRB.CreateGEP(MapPtr, MapRiskNumLoc), LargestType->getPointerTo());
 
-        //     LoadInst* MapRisk = IRB.CreateLoad(MapRisk_NumPtr);
-        //     MapRisk->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+        if (syscall_num > 0) { // cause original value is 0, so we just consider syscall_num > 0
+            ConstantInt* Syscall_num =
+                ConstantInt::get(Int32Ty, syscall_num);
+            /* Add risk to shm[MAPSIZE] */
+            Value* MapRisk_NumPtr = IRB.CreateBitCast(
+                IRB.CreateGEP(MapPtr, MapRiskNumLoc), Int32Ty->getPointerTo());
 
-        //     // modify + write back
-        //     Value* IncrRN = IRB.CreateAdd(MapRisk, Syscall_num);
-        //     IRB.CreateStore(IncrRN, MapRisk_NumPtr)
-        //           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-        //   }
+            LoadInst* MapRisk = IRB.CreateLoad(MapRisk_NumPtr);
+            MapRisk->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+
+            // modify + write back
+            Value* IncrRN = IRB.CreateAdd(MapRisk, Syscall_num);
+            IRB.CreateStore(IncrRN, MapRisk_NumPtr)
+                  ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+          }
           
 
         inst_blocks++;
