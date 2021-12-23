@@ -1444,7 +1444,9 @@ static void minimize_bits(u8* dst, u8* src) {
 static void update_bitmap_score(struct queue_entry* q) {
 
   u32 i;
+  u32 low_fre_num = q->low_fre_num;
   u64 fav_factor = q->exec_us * q->len;
+  double distance = q->distance;
 
   /* For every byte set in trace_bits[], see if there is a previous winner,
      and how it compares to us. */
@@ -1456,11 +1458,41 @@ static void update_bitmap_score(struct queue_entry* q) {
     if (trace_bits[i]) {
 
        if (top_rated[i]) {
-         // if there's already anthor test case that covers this path
+         // if there's already anthor test case that covers this branch
+        
+        u64 cur_ms = get_cur_time();
+        u64 t = (cur_ms - start_time) / 1000;
+        
 
-         /* Faster-executing or smaller test cases are favored. */
+        if(t < (t_x * 60)) { // it's exploration phase now! 
 
-         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue; //the smaller, the better...
+          u32 top_rated_low_fre_num = top_rated[i]->low_fre_num;
+          u64 top_rated_fav_factor = top_rated[i]->exec_us * top_rated[i]->len;
+           
+           /* Faster-executing or smaller test cases are favored. */
+           //if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue; //the smaller, the better...
+
+          if(low_fre_num < top_rated_low_fre_num) continue;
+          else if(low_fre_num == top_rated_low_fre_num){
+
+              if (fav_factor > top_rated_fav_factor) continue;
+
+          }
+
+        }
+        else { // it's exploitation phase now! 
+
+          double top_rated_distance = top_rated[i]->distance;
+          u64 top_rated_fav_factor = top_rated[i]->exec_us * top_rated[i]->len;
+
+          if(distance > top_rated[i]->distance) continue;
+          else if(fabs(distance - top_rated[i]->distance) < 0.01){ // can't directly compare two double
+              if (fav_factor > top_rated_fav_factor) continue;
+
+          }
+
+        }
+
 
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
@@ -5016,8 +5048,8 @@ static u32 calculate_score(struct queue_entry* q) {
 
   }
 
-  u64 cur_ms = get_cur_time();
-  u64 t = (cur_ms - start_time) / 1000;
+  u64 cur_ms = get_cur_time();          // Unit is ms
+  u64 t = (cur_ms - start_time) / 1000; // Unit is second
   double progress_to_tx = ((double) t) / ((double) t_x * 60.0);
 
   double T;
