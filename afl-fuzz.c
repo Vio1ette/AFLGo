@@ -266,6 +266,9 @@ struct queue_entry {
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
 
+  //@@LowFre
+  int low_fre_num;                    /* Low fre num of this seed */
+
   double distance;                    /* Distance to targets              */
 
   struct queue_entry *next,           /* Next element, if any             */
@@ -297,6 +300,9 @@ static double cur_distance = -1.0;     /* Distance of executed input       */
 static double max_distance = -1.0;     /* Maximal distance for any input   */
 static double min_distance = -1.0;     /* Minimal distance for any input   */
 static u32 t_x = 10;                  /* Time to exploitation (Default: 10 min) */
+
+//@@LowFre
+static int cur_low_fre_num = 0;        /* Low fre num of exexuted input */
 
 static u8* (*post_handler)(u8* buf, u32* len);
 
@@ -944,6 +950,8 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
     if (cur_distance < min_distance) min_distance = cur_distance;
 
   }
+  //@@LowFre
+  q->low_fre_num = cur_low_fre_num;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1042,7 +1050,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
-  u64* current = (u64*)trace_bits; // trace_bits �� 65536 �� uchar���� 64 λָ���������������Ļ�����ζ��ÿ�β���64λ����8������Ԫ��
+  u64* current = (u64*)trace_bits; // trace_bits  65536
   u64* virgin  = (u64*)virgin_map;
 
   u32  i = (MAP_SIZE >> 3);
@@ -1074,15 +1082,18 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #endif /* ^__x86_64__ */
 
+  //@@LowFre
+  cur_low_fre_num = getNum_low_fre_branch(trace_bits);
+
   u8   ret = 0;
 
-  while (i--) { // 64λ ��Ҫ���� 65536/8 = 8192 �� 
+  while (i--) { // 64λ 65536/8 = 8192 
 
     /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) { //������¶���
+    if (unlikely(*current) && unlikely(*current & *virgin)) { 
 
       if (likely(ret < 2)) {
 
@@ -1110,7 +1121,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current; // ~����λȡ��
+      *virgin &= ~*current;
 
     }
 
@@ -1119,7 +1130,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   }
 
-  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //���ӡ���һ������ret��Ϊ0�������⣬�ڶ����������е��޷�����
+  if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
 
   return ret;
 
@@ -2821,6 +2832,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
         if (cur_distance < min_distance) min_distance = cur_distance;
 
       }
+      //@@LowFre
+      q->low_fre_num = cur_low_fre_num;
 
     }
 
@@ -5311,11 +5324,6 @@ static u8 fuzz_one(char** argv) {
   }
 
 #endif /* ^IGNORE_FINDS */
-
-  //@@LowFre
-  int cur_low_fre_num = getNum_low_fre_branch(trace_bits);
-  DEBUG1("%d!!\n", cur_low_fre_num);
-
 
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
