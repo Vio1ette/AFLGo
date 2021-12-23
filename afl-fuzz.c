@@ -908,7 +908,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
-  u64* current = (u64*)trace_bits; // trace_bits ÊÇ 65536 ¸ö uchar£¬ÓÃ 64 Î»Ö¸ÕëÀ´²Ù×÷Õâ¸öÊý×éµÄ»°£¬ÒâÎ¶×ÅÃ¿´Î²Ù×÷64Î»£¬¼´8¸öÊý×éÔªËØ
+  u64* current = (u64*)trace_bits; // trace_bits ï¿½ï¿½ 65536 ï¿½ï¿½ ucharï¿½ï¿½ï¿½ï¿½ 64 Î»Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä»ï¿½ï¿½ï¿½ï¿½ï¿½Î¶ï¿½ï¿½Ã¿ï¿½Î²ï¿½ï¿½ï¿½64Î»ï¿½ï¿½ï¿½ï¿½8ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ôªï¿½ï¿½
   u64* virgin  = (u64*)virgin_map;
 
   u32  i = (MAP_SIZE >> 3);
@@ -942,13 +942,13 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u8   ret = 0;
 
-  while (i--) { // 64Î» ÐèÒªµü´ú 65536/8 = 8192 ´Î 
+  while (i--) { // 64Î» ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ 65536/8 = 8192 ï¿½ï¿½ 
 
     /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) { //Èç¹ûÓÐÐÂ¶«Î÷
+    if (unlikely(*current) && unlikely(*current & *virgin)) { //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â¶ï¿½ï¿½ï¿½
 
       if (likely(ret < 2)) {
 
@@ -976,7 +976,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current; // ~£º°´Î»È¡·´
+      *virgin &= ~*current; // ~ï¿½ï¿½ï¿½ï¿½Î»È¡ï¿½ï¿½
 
     }
 
@@ -985,7 +985,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   }
 
-  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //¡¾¿Ó¡¿µÚÒ»¸öÌõ¼þret²»Îª0¿ÉÒÔÀí½â£¬µÚ¶þ¸öÌõ¼þ¾ÍÓÐµãÎÞ·¨Àí½â
+  if (ret && virgin_map == virgin_bits) bitmap_changed = 1; //ï¿½ï¿½ï¿½Ó¡ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½retï¿½ï¿½Îª0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â£¬ï¿½Ú¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ðµï¿½ï¿½Þ·ï¿½ï¿½ï¿½ï¿½ï¿½
 
   return ret;
 
@@ -1348,7 +1348,7 @@ static void cull_queue(void) {
   score_changed = 0;
 
   memset(temp_v, 255, MAP_SIZE >> 3);
-  //initialize all bits of temp_v to 1, È« 1 ±íÊ¾»¹Ã»ÓÐ±»¸²¸Çµ½£¬Îª 0 ¾Í±íÊ¾±»¸²¸Çµ½ÁË¡¾ÕâÀïµÄ¸²¸ÇÖ¸µÄÊÇ·ÖÖ§µÄ¸²¸Ç£¿¶Ô£¡¡¿
+  //initialize all bits of temp_v to 1, È« 1 ï¿½ï¿½Ê¾ï¿½ï¿½Ã»ï¿½Ð±ï¿½ï¿½ï¿½ï¿½Çµï¿½ï¿½ï¿½Îª 0 ï¿½Í±ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½Çµï¿½ï¿½Ë¡ï¿½ï¿½ï¿½ï¿½ï¿½Ä¸ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½Ç·ï¿½Ö§ï¿½Ä¸ï¿½ï¿½Ç£ï¿½ï¿½Ô£ï¿½ï¿½ï¿½
 
 
   queued_favored  = 0;
@@ -1361,13 +1361,13 @@ static void cull_queue(void) {
     q->favored = 0;
     q = q->next;
   }//reset favored to 0
-  //¶ÓÁÐ±éÀú
+  //ï¿½ï¿½ï¿½Ð±ï¿½ï¿½ï¿½
 
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
 
-  // i ´Ó 0 µ½ MAP_SIZE ½øÐÐµü´ú£¬É¸Ñ¡³öÒ»×é¶ÓÁÐÌõÄ¿£¬ËüÃÇ¿ÉÒÔ¸²¸ÇËùÓÐÏÖÔÚ
-  // ÒÑ¾­¸²¸ÇµÄÂ·¾¶
+  // i ï¿½ï¿½ 0 ï¿½ï¿½ MAP_SIZE ï¿½ï¿½ï¿½Ðµï¿½ï¿½ï¿½ï¿½ï¿½É¸Ñ¡ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½Ç¿ï¿½ï¿½Ô¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+  // ï¿½Ñ¾ï¿½ï¿½ï¿½ï¿½Çµï¿½Â·ï¿½ï¿½
   for (i = 0; i < MAP_SIZE; i++)
     if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
@@ -1382,13 +1382,13 @@ static void cull_queue(void) {
       top_rated[i]->favored = 1;
       queued_favored++;
 
-      if (!top_rated[i]->was_fuzzed) pending_favored++; //±»Ö´ÐÐ¹ýÁË£¬µ«ÊÇ»¹Ã»ÓÐ±»±äÒì¹ýµÄcase
+      if (!top_rated[i]->was_fuzzed) pending_favored++; //ï¿½ï¿½Ö´ï¿½Ð¹ï¿½ï¿½Ë£ï¿½ï¿½ï¿½ï¿½Ç»ï¿½Ã»ï¿½Ð±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case
 
     }
 
   q = queue;
 
-  while (q) { // ±éÀú¶ÓÁÐ£¬²»ÊÇfavoredµÄcase£¨ÈßÓàµÄcase£©»á±»±ê¼ÇÎªredundant_edges
+  while (q) { // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½favoredï¿½ï¿½caseï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½caseï¿½ï¿½ï¿½á±»ï¿½ï¿½ï¿½Îªredundant_edges
     mark_as_redundant(q, !q->favored);
     q = q->next;
   }
@@ -1402,7 +1402,7 @@ EXP_ST void setup_shm(void) {
 
   u8* shm_str;
 
-  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); //³õÊ¼»¯ virgin_bits ËùÓÐÎ»¶¼ÊÇ1
+  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE); //ï¿½ï¿½Ê¼ï¿½ï¿½ virgin_bits ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½1
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
@@ -2601,7 +2601,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   s32 old_sc = stage_cur, old_sm = stage_max;
   u32 use_tmout = exec_tmout;
-  u8* old_sn = stage_name; //µ±Ç°½øÐÐµÄ½×¶ÎµÄÃû³Æ
+  u8* old_sn = stage_name; //ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ÐµÄ½×¶Îµï¿½ï¿½ï¿½ï¿½ï¿½
   //save old globals
 
   /* Be a bit more generous about timeouts when resuming sessions, or when
@@ -3237,7 +3237,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     add_to_queue(fn, len, 0);
 
-    if (hnb == 2) { // ±íÊ¾µÃµ½ÁËÄÜÊ¹¸²¸ÇÂÊÔö³¤µÄcase
+    if (hnb == 2) { // ï¿½ï¿½Ê¾ï¿½Ãµï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case
       queue_top->has_new_cov = 1;
       queued_with_cov++;
     }
@@ -4702,13 +4702,13 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
       cur_skipped_paths++;
       return 1;
     }
-  // Ö´ÐÐÊ±¼äÌ«¿ì»òÌ«Âý¶¼²»ÐÐ
+  // Ö´ï¿½ï¿½Ê±ï¿½ï¿½Ì«ï¿½ï¿½ï¿½Ì«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
   } else subseq_tmouts = 0;
 
   /* Users can hit us with SIGUSR1 to request the current input
      to be abandoned. */
 
-  if (skip_requested) { //Èç¹ûÒªÌø¹ýÕâ¸öcase?
+  if (skip_requested) { //ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½case?
 
      skip_requested = 0;
      cur_skipped_paths++;
@@ -4823,7 +4823,7 @@ static u32 calculate_score(struct queue_entry* q) {
      deeper test cases is more likely to reveal stuff that can't be
      discovered with traditional fuzzers. */
 
-  switch (q->depth) { // ÔõÃ´Àí½â inpiut depth£¿
+  switch (q->depth) { // ï¿½ï¿½Ã´ï¿½ï¿½ï¿½ï¿½ inpiut depthï¿½ï¿½
 
     case 0 ... 3:   break;
     case 4 ... 7:   perf_score *= 2; break;
@@ -4885,7 +4885,7 @@ static u32 calculate_score(struct queue_entry* q) {
     }// else WARNF ("Normalized distance negative: %f", normalized_d);
 
   }
-  // ½áºÏ¾àÀëµÄÄÜÁ¿µ÷¶È
+  // ï¿½ï¿½Ï¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
   perf_score *= power_factor;
 
@@ -5091,7 +5091,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
 
-static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
+static u8 fuzz_one(char** argv) {
 
   s32 len, fd, temp_len, i, j;
   u8  *in_buf, *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
@@ -5103,26 +5103,26 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
-#ifdef IGNORE_FINDS // ºöÂÔÈÎºÎÐÂcase
+#ifdef IGNORE_FINDS
 
   /* In IGNORE_FINDS mode, skip any entries that weren't in the
      initial data set. */
 
   if (queue_cur->depth > 1) return 1;
 
-#else //Ò»Ð©Ìø¹ý¹æÔò
+#else
 
-  if (pending_favored) {  // Èç¹ûÓÐ»¹Ã»ÓÐ±» fuzz(±äÒì) ¹ý£¬µ«ÒÑ¾­Ö´ÐÐ¹ýÇÒ±»±ê¼ÇÎª favored µÄ case£¬ÕâÐ©ÊÇÖØµã fuzz(½øÐÐ±äÒì) µÄ¶ÔÏó
+  if (pending_favored) {  
 
     /* If we have any favored, non-fuzzed new arrivals in the queue,
        possibly skip to them at the expense of already-fuzzed or non-favored
        cases. */
-      // ×¢ÒâÊÇ skip to them£¬Ò²¾ÍÊÇËµÒªÌø¹ý already-fuzzed or non-favored cases£¬È»ºó±äÒìÄÇÐ© favored, non-fuzzed cases
+      //  skip to them already-fuzzed or non-favored cases favored, non-fuzzed cases
 
     if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
-        UR(100) < SKIP_TO_NEW_PROB) return 1; // UR(100), 0-100 Ö®Ç°µÄËæ»úÊý£¬ Ö»ÒªÐ¡ÓÚ 99£¬¾ÍÌø¹ý 
+        UR(100) < SKIP_TO_NEW_PROB) return 1; // UR(100), 0-100 Ö®Ç°
 
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) { // µÈ´ý fuzz µÄ cases ÓÐ 10 ¸öÒÔÉÏ
+  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) { 
 
     /* Otherwise, still possibly skip non-favored cases, albeit less often.
        The odds of skipping stuff are higher for already-fuzzed inputs and
@@ -5228,11 +5228,25 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 
   orig_perf = perf_score = calculate_score(queue_cur);
 
+  /********************************
+   * Adapted Mutation Granularity *
+   ********************************/
+
+  double delta = 0;
+
+  double thres_dis = min_distance + (max_distance - min_distance) * 0.1;
+
+  
+  if ( queue_cur->distance < thres_dis ) {
+    s
+  }
+
+
   /* Skip right away if -d is given, if we have done deterministic fuzzing on
      this entry ourselves (was_fuzzed), or if it has gone through deterministic
      testing in earlier, resumed runs (passed_det). */
 
-  // TODO, ¾àÀë±È½Ï½üµÄ¾ÍÑ¡ÓÃ deterministic
+  // TODO, deterministic
   if (skip_deterministic || queue_cur->was_fuzzed || queue_cur->passed_det)
     goto havoc_stage;
 
@@ -5251,14 +5265,14 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 #define FLIP_BIT(_ar, _b) do { \
     u8* _arf = (u8*)(_ar); \
     u32 _bf = (_b); \
-    _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \ //ÊÇ´Ó¸ßÎ»ÏòµÍÎ»ÒÀ´Î½øÐÐ·­×ª£¬´Ó×óÍùÓÒ
+    _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \ 
   } while (0)
 
-  // FLIP_BIT µÄ×÷ÓÃ¾ÍÊÇ·­×ªÖ¸¶¨Î»ÖÃµÄ 1 bit
+  // FLIP_BIT 1 bit
   /* Single walking bit. */
 
   stage_short = "flip1";
-  stage_max   = len << 3; // ÎÄ¼þ³¤¶È(len)*8£¬ÍÆ¶Ï stage_max ÊÇ¿ÉÒÔ±äÒìµÄ´ÎÊý£¬³õ²½ÍÆ²â£¬Ô­À´µÄ len µÄµ¥Î»ÊÇ byte£¬È»ºó stage_max µÄµ¥Î»ÊÇ bit
+  stage_max   = len << 3;  // input only has len*8 bits, so FLIP_BIT(1 bit) only can be perform len*8 times.
   stage_name  = "bitflip 1/1";
 
   stage_val_type = STAGE_VAL_NONE;
@@ -5269,9 +5283,9 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    stage_cur_byte = stage_cur >> 3;  //±éÀúµ½µ±Ç°µÚ¼¸¸ö×Ö½ÚÁË£¿
+    stage_cur_byte = stage_cur >> 3;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½Ú¼ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½Ë£ï¿½
 
-    FLIP_BIT(out_buf, stage_cur); // ·­×ªµ±Ç°×Ö½ÚµÄµÚ stage_cur ¸ö bit
+    FLIP_BIT(out_buf, stage_cur); // ï¿½ï¿½×ªï¿½ï¿½Ç°ï¿½Ö½ÚµÄµï¿½ stage_cur ï¿½ï¿½ bit
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
@@ -5305,7 +5319,7 @@ static u8 fuzz_one(char** argv) { // ¶ÔÒ»¸öcaseµÄfuzz
       */
 
     if (!dumb_mode && (stage_cur & 7) == 7) {
-      // (stage_cur & 7) == 7 ÒâË¼¾ÍÊÇ£¬·­×ªµ½µ±Ç°×Ö½ÚµÄ×îµÍÎ»Ê±
+      // (stage_cur & 7) == 7 ï¿½ï¿½Ë¼ï¿½ï¿½ï¿½Ç£ï¿½ï¿½ï¿½×ªï¿½ï¿½ï¿½ï¿½Ç°ï¿½Ö½Úµï¿½ï¿½ï¿½ï¿½Î»Ê±
       u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
       if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
@@ -8222,7 +8236,7 @@ int main(int argc, char** argv) {
 
     cull_queue();
 
-    if (!queue_cur) { //Èç¹û queue_cur Îª¿Õ
+    if (!queue_cur) { //ï¿½ï¿½ï¿½ queue_cur Îªï¿½ï¿½
 
       queue_cycle++;
       current_entry     = 0;

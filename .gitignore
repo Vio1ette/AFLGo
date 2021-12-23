@@ -14,3 +14,6 @@ afl-tmin
 as
 *.o
 .vs/
+.vscode/
+distance_calculator/
+
