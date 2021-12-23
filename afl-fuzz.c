@@ -3411,7 +3411,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   s32 fd;
   u8  keeping = 0, res;
 
-  if (fault == crash_mode) {
+  if (fault == crash_mode) {  // if run_target returns FAULT_CRASH, means a crash generated
 
       /*@@LowFre */
       increment_hit_bits();
@@ -3419,7 +3419,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 
-    if (!(hnb = has_new_bits(virgin_bits))) {
+    if (!(hnb = has_new_bits(virgin_bits))) { // indicate this is just a crash input, which didn't have something new
       if (crash_mode) total_crashes++;
       return 0;
     }    
@@ -3438,7 +3438,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     add_to_queue(fn, len, 0);
 
-    if (hnb == 2) { // ��ʾ�õ�����ʹ������������case
+    if (hnb == 2) { 
       queue_top->has_new_cov = 1;
       queued_with_cov++;
     }
@@ -4903,13 +4903,13 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
       cur_skipped_paths++;
       return 1;
     }
-  // ִ��ʱ��̫���̫��������
+
   } else subseq_tmouts = 0;
 
   /* Users can hit us with SIGUSR1 to request the current input
      to be abandoned. */
 
-  if (skip_requested) { //���Ҫ�������case?
+  if (skip_requested) { 
 
      skip_requested = 0;
      cur_skipped_paths++;
@@ -5292,7 +5292,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
 
-static u8 fuzz_one(char** argv) { // ��һ��case��fuzz
+static u8 fuzz_one(char** argv) { 
 
   s32 len, fd, temp_len, i, j;
   u8  *in_buf, *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
@@ -5304,7 +5304,7 @@ static u8 fuzz_one(char** argv) { // ��һ��case��fuzz
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
-#ifdef IGNORE_FINDS // �����κ���case
+#ifdef IGNORE_FINDS 
 
   /* In IGNORE_FINDS mode, skip any entries that weren't in the
      initial data set. */
@@ -5460,11 +5460,10 @@ static u8 fuzz_one(char** argv) { // ��һ��case��fuzz
     _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \
   } while (0)
 
-  // FLIP_BIT �����þ��Ƿ�תָ��λ�õ� 1 bit
   /* Single walking bit. */
 
   stage_short = "flip1";
-  stage_max   = len << 3; // �ļ�����(len)*8���ƶ� stage_max �ǿ��Ա���Ĵ����������Ʋ⣬ԭ���� len �ĵ�λ�� byte��Ȼ�� stage_max �ĵ�λ�� bit
+  stage_max   = len << 3; 
   stage_name  = "bitflip 1/1";
 
   stage_val_type = STAGE_VAL_NONE;
@@ -5473,11 +5472,11 @@ static u8 fuzz_one(char** argv) { // ��һ��case��fuzz
 
   prev_cksum = queue_cur->exec_cksum;
 
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
+  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {  // use FLIP_BIT 'stage_max times' 
 
-    stage_cur_byte = stage_cur >> 3;  //��������ǰ�ڼ����ֽ��ˣ�
+    stage_cur_byte = stage_cur >> 3; 
 
-    FLIP_BIT(out_buf, stage_cur); // ��ת��ǰ�ֽڵĵ� stage_cur �� bit
+    FLIP_BIT(out_buf, stage_cur);
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
