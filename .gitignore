@@ -16,4 +16,5 @@ as
 .vs/
 distance_calculator/
 scripts/gen_distance_fast.py
+.vscode/
 
