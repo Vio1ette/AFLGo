@@ -154,6 +154,7 @@ EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
 static u64 max_hit;                   /* @@LowFre Try to modify the threshold of low fre */
 static u64 hit_bits[MAP_SIZE];        /* @@LowFre Hits to every basic block transition*/
+static int coverage;                  /* @@LowFre be used to log coverage */
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
@@ -847,48 +848,6 @@ static int contains_id(int branch_id, int* branch_ids) {
     return 0;
 }
 
-
-// static int* get_low_frequent_branch_ids() {
-//     int* low_fre_branch_ids = ck_alloc(sizeof(int) * MAX_LOW_BRANCHES);
-//     int lowest_hob = INT_MAX; // lowest low fre, up threshold based on it
-//     int ret_list_size = 0;
-
-//     for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_LOW_BRANCHES - 1); i++) {
-//         if (unlikely(hit_bits[i] > 0)) {
-//             //if (contains_id(i, blacklist))continue;
-//             unsigned int long cur_hits = hit_bits[i];
-//             int highest_order_bit = 0;
-//             while (cur_hits >>= 1)
-//                 highest_order_bit++;
-//             lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
-//             if (highest_order_bit < low_fre_branch_exp) {
-//                 if (highest_order_bit < low_fre_branch_exp - 1) {
-//                     low_fre_branch_exp = highest_order_bit + 1;
-//                     ret_list_size = 0;
-//                 }
-//                 low_fre_branch_ids[ret_list_size] = i;
-//                 ret_list_size++;
-//             }
-//         }
-//     }
-
-//     // all edges aren't low fre branch. and upp max exp to enhance low fre threshold
-
-//     // There's no low_fre branch, try to add one to low_fre_threshold 
-//     if (ret_list_size == 0) {
-//         DEBUG1("low_fre_branch list is null");
-//         if (lowest_hob != INT_MAX) {
-//             low_fre_branch_exp = lowest_hob + 1;
-//             DEBUG1("Upped max exp to %i\n", low_fre_branch_exp);
-//             ck_free(low_fre_branch_ids);
-//             return get_low_frequent_branch_ids();
-//         }
-//     }
-
-//     low_fre_branch_ids[ret_list_size] = -1; //use -1 to mark termination
-//     return low_fre_branch_ids;
-// }
-
 //@@LowFre
 /* already have the global hit_counts, utilize it to get the low_frequent_branch_ids */
 static int* get_low_frequent_branch_ids() {
@@ -1464,7 +1423,7 @@ static void update_bitmap_score(struct queue_entry* q) {
         u64 t = (cur_ms - start_time) / 1000;
         
 
-        if(t < (t_x * 60)) { // it's exploration phase now! 
+        if(t < (t_x * 60)) { // it's exploration phase now!
 
           u32 top_rated_low_fre_num = top_rated[i]->low_fre_num;
           u64 top_rated_fav_factor = top_rated[i]->exec_us * top_rated[i]->len;
@@ -1481,7 +1440,7 @@ static void update_bitmap_score(struct queue_entry* q) {
 
         }
         else { // it's exploitation phase now! 
-
+          
           double top_rated_distance = top_rated[i]->distance;
           u64 top_rated_fav_factor = top_rated[i]->exec_us * top_rated[i]->len;
 
@@ -1492,8 +1451,6 @@ static void update_bitmap_score(struct queue_entry* q) {
           }
 
         }
-
-
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
 
@@ -2848,12 +2805,33 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     /* This is relevant when test cases are added w/out save_if_interesting */
 
-    if (q->distance <= 0) { // why q->distance <=0 ? 
+    if (q->distance <= 0) { // why q->distance <=0 ?
+      
+      // @@LowFre
+      u64 cur_ms = get_cur_time();
+      u64 t = (cur_ms -start_time) / 1000;    // unit is second
+      DEBUG1("%llu,",t);
+
+      coverage = 0;
+      for (int i = 0; i < MAP_SIZE; i++) {
+        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX)){
+              hit_bits[i]++;
+              if (hit_bits[i] > max_hit) {
+                max_hit = hit_bits[i];
+              } // 5 percent of max_hit is used as the threshold
+        }
+        if (hit_bits[i] > 0){
+          coverage++;  // the clear to coverage should have finished. 
+        }
+      }
+      DEBUG1("%d\n",coverage);
+
 
       /* This calculates cur_distance */
       has_new_bits(virgin_bits);
 
       q->distance = cur_distance;
+
       if (cur_distance > 0) {
 
         if (max_distance <= 0) {
@@ -3403,13 +3381,16 @@ effectively counts that one input has hit each element of trace_bits
 */
 static void increment_hit_bits() {
     for (int i = 0; i < MAP_SIZE; i++) {
-        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
-            {
+        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX)){
               hit_bits[i]++;
               if (hit_bits[i] > max_hit) {
                 max_hit = hit_bits[i];
               } // 5 percent of max_hit is used as the threshold
-            }
+        }
+
+        if (hit_bits[i] > 0){
+          coverage++;  // the clear to coverage should have finished. 
+        }
     }
 }
 
@@ -3428,15 +3409,21 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   if (fault == crash_mode) {  // if run_target returns FAULT_CRASH, means a crash generated
 
       /*@@LowFre */
-      increment_hit_bits();
+      u64 cur_ms = get_cur_time();
+      u64 t = (cur_ms -start_time) / 1000;    // unit is second
+      DEBUG1("%llu,",t);
 
-    /* Keep only if there are new bits in the map, add to queue for
-       future fuzzing, etc. */
+      coverage = 0;
+      increment_hit_bits(); // cause increment_hit_bits must have been called before calling has_new_bits
+      DEBUG1("%d\n",coverage);
 
-    if (!(hnb = has_new_bits(virgin_bits))) { // indicate this is just a crash input, which didn't have something new
-      if (crash_mode) total_crashes++;
-      return 0;
-    }    
+      /* Keep only if there are new bits in the map, add to queue for
+        future fuzzing, etc. */
+
+      if (!(hnb = has_new_bits(virgin_bits))) { // indicate this is just a crash input, which didn't have something new
+        if (crash_mode) total_crashes++;
+        return 0;
+      }
 
 #ifndef SIMPLE_FILES
 
@@ -5038,7 +5025,7 @@ static u32 calculate_score(struct queue_entry* q) {
      deeper test cases is more likely to reveal stuff that can't be
      discovered with traditional fuzzers. */
 
-  switch (q->depth) { // ��ô���� inpiut depth��
+  switch (q->depth) { 
 
     case 0 ... 3:   break;
     case 4 ... 7:   perf_score *= 2; break;
@@ -5100,7 +5087,7 @@ static u32 calculate_score(struct queue_entry* q) {
     }// else WARNF ("Normalized distance negative: %f", normalized_d);
 
   }
-  // ��Ͼ������������
+
 
   perf_score *= power_factor;
 
