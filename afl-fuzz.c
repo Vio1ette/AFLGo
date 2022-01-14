@@ -26,7 +26,9 @@
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
  //@@Low_Fre
-#define DEBUG1 fileonly
+#define DEBUG1 fileonly1
+#define DEBUG2 fileonly2
+
 
 
 #include "config.h"
@@ -309,7 +311,6 @@ static u8* (*post_handler)(u8* buf, u32* len);
 
 //@@LowFre
 static u32 MAX_LOW_BRANCHES = 256;
-static int low_fre_branch_exp = 4;      /* less than 2^low_fre_branch_exp is low _fre_branch */
 
 /* Interesting values, as per config.h */
 
@@ -359,10 +360,23 @@ enum {
 };
 
 //@@LowFre for log
-void fileonly(char const* fmt, ...) {
+void fileonly1(char const* fmt, ...) {
     static FILE* f = NULL;
     if (f == NULL) {
-        u8* fn = alloc_printf("%s/low-fre-branch-fuzzing.log", out_dir);
+        u8* fn = alloc_printf("%s/coverage-time.log", out_dir);
+        f = fopen(fn, "w");
+        ck_free(fn);
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+}
+
+void fileonly2(char const* fmt, ...) {
+    static FILE* f = NULL;
+    if (f == NULL) {
+        u8* fn = alloc_printf("%s/distance-time.log", out_dir);
         f = fopen(fn, "w");
         ck_free(fn);
     }
@@ -887,6 +901,27 @@ static int getNum_low_fre_branch() {
     return low_Fre_Num;
 }
 
+/*
+@@LowFre
+increment hit bits by 1 for every element of trace_bits that has been hit.
+effectively counts that one input has hit each element of trace_bits
+*/
+static void increment_hit_bits() {
+    for (int i = 0; i < MAP_SIZE; i++) {
+        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX)){
+              hit_bits[i]++;
+              if (hit_bits[i] > max_hit) {
+                max_hit = hit_bits[i];
+              } // 5 percent of max_hit is used as the threshold
+        }
+
+        if (hit_bits[i] > 0){
+          coverage++;  // the clear to coverage should have finished. 
+        }
+    }
+}
+
+
 /* Append new test case to the queue. */
 
 static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
@@ -909,8 +944,23 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
     if (cur_distance < min_distance) min_distance = cur_distance;
 
   }
-  //@@LowFre
-  q->low_fre_num = cur_low_fre_num;
+
+  if( q->distance > 0 ){
+      //@@LowFre
+      q->low_fre_num = cur_low_fre_num;
+
+      /*@@LowFre */
+      u64 cur_ms = get_cur_time();
+      u64 t = (cur_ms -start_time) / 1000;    // unit is second
+      DEBUG1("%llu,",t);
+
+      DEBUG2("%llu,",t);
+      DEBUG2("%lf\n",min_distance);
+
+      coverage = 0;
+      increment_hit_bits(); // cause increment_hit_bits must have been called before calling has_new_bits
+      DEBUG1("%d\n",coverage);
+  }
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1444,8 +1494,8 @@ static void update_bitmap_score(struct queue_entry* q) {
           double top_rated_distance = top_rated[i]->distance;
           u64 top_rated_fav_factor = top_rated[i]->exec_us * top_rated[i]->len;
 
-          if(distance > top_rated[i]->distance) continue;
-          else if(fabs(distance - top_rated[i]->distance) < 0.01){ // can't directly compare two double
+          if(distance > top_rated_distance) continue;
+          else if(fabs(distance - top_rated_distance) < 0.01){ // can't directly compare two double
               if (fav_factor > top_rated_fav_factor) continue;
 
           }
@@ -2807,6 +2857,9 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     if (q->distance <= 0) { // why q->distance <=0 ?
       
+      /* This calculates cur_distance and cur_low_fre */
+      has_new_bits(virgin_bits);
+
       // @@LowFre
       u64 cur_ms = get_cur_time();
       u64 t = (cur_ms -start_time) / 1000;    // unit is second
@@ -2826,10 +2879,6 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
       }
       DEBUG1("%d\n",coverage);
 
-
-      /* This calculates cur_distance */
-      has_new_bits(virgin_bits);
-
       q->distance = cur_distance;
 
       if (cur_distance > 0) {
@@ -2842,6 +2891,10 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
         if (cur_distance < min_distance) min_distance = cur_distance;
 
       }
+
+      DEBUG2("%llu,",t);
+      DEBUG2("%lf\n",min_distance);
+
       //@@LowFre
       q->low_fre_num = cur_low_fre_num;
 
@@ -3374,25 +3427,6 @@ static void write_crash_readme(void) {
 
 }
 
-/*
-@@LowFre
-increment hit bits by 1 for every element of trace_bits that has been hit.
-effectively counts that one input has hit each element of trace_bits
-*/
-static void increment_hit_bits() {
-    for (int i = 0; i < MAP_SIZE; i++) {
-        if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX)){
-              hit_bits[i]++;
-              if (hit_bits[i] > max_hit) {
-                max_hit = hit_bits[i];
-              } // 5 percent of max_hit is used as the threshold
-        }
-
-        if (hit_bits[i] > 0){
-          coverage++;  // the clear to coverage should have finished. 
-        }
-    }
-}
 
 
 /* Check if the result of an execve() during routine fuzzing is interesting,
@@ -3407,15 +3441,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  keeping = 0, res;
 
   if (fault == crash_mode) {  // if run_target returns FAULT_CRASH, means a crash generated
-
-      /*@@LowFre */
-      u64 cur_ms = get_cur_time();
-      u64 t = (cur_ms -start_time) / 1000;    // unit is second
-      DEBUG1("%llu,",t);
-
-      coverage = 0;
-      increment_hit_bits(); // cause increment_hit_bits must have been called before calling has_new_bits
-      DEBUG1("%d\n",coverage);
 
       /* Keep only if there are new bits in the map, add to queue for
         future fuzzing, etc. */
